@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: hestia-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: hestia_db
+      MYSQL_USER: hestia_user
+      MYSQL_PASSWORD: hestia_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - hestia_mysql_data:/var/lib/mysql
+      - ./database/00_full_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uhestia_user", "-phestia_pass"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  auth-service:
+    build:
+      context: ./backend/auth-service
+      dockerfile: Dockerfile
+    container_name: hestia-auth
+    restart: unless-stopped
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: hestia_db
+      DB_USER: hestia_user
+      DB_PASSWORD: hestia_pass
+      JWT_SECRET: hestia_jwt_secret_key_change_in_production_32chars
+      JWT_EXPIRES_IN: 7d
+      AUTH_PORT: 3001
+      CORS_ORIGIN: "*"
+      DEMO_BUYER_EMAIL: demo@hestia.com
+      DEMO_BUYER_PASSWORD: "123456"
+      ADMIN_EMAIL: admin@hestia.com
+      ADMIN_PASSWORD: "Admin@123456"
+    ports:
+      - "3001:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  property-service:
+    build:
+      context: ./backend/property-service
+      dockerfile: Dockerfile
+    container_name: hestia-property
+    restart: unless-stopped
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: hestia_db
+      DB_USER: hestia_user
+      DB_PASSWORD: hestia_pass
+      JWT_SECRET: hestia_jwt_secret_key_change_in_production_32chars
+      PROPERTY_PORT: 3002
+      CORS_ORIGIN: "*"
+    ports:
+      - "3002:3002"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  interaction-service:
+    build:
+      context: ./backend/interaction-service
+      dockerfile: Dockerfile
+    container_name: hestia-interaction
+    restart: unless-stopped
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: hestia_db
+      DB_USER: hestia_user
+      DB_PASSWORD: hestia_pass
+      JWT_SECRET: hestia_jwt_secret_key_change_in_production_32chars
+      INTERACTION_PORT: 3003
+      CORS_ORIGIN: "*"
+    ports:
+      - "3003:3003"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ./backend/gateway
+      dockerfile: Dockerfile
+    container_name: hestia-gateway
+    restart: unless-stopped
+    environment:
+      GATEWAY_PORT: 3000
+      AUTH_SERVICE_URL: http://auth-service:3001
+      PROPERTY_SERVICE_URL: http://property-service:3002
+      INTERACTION_SERVICE_URL: http://interaction-service:3003
+      CORS_ORIGIN: "*"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - auth-service
+      - property-service
+      - interaction-service
+
+volumes:
+  hestia_mysql_data:
